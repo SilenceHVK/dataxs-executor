@@ -1,0 +1,36 @@
+server:
+  port: 3000
+  mode: debug
+## 日志配置
+log:
+  writers: file,stdout
+  logger_level: DEBUG
+  logger_file: log/dataxs-executor.log
+  log_format_text: true
+  rollingPolicy: date
+  log_rotate_date: 1
+  log_rotate_size: 1
+  log_backup_count: 7
+
+## datax 相关环境
+datax:
+  env: java
+  xms: 1g
+  xmx: 1g
+  mode: standalone
+  logLevel: info
+  jobExt: .json
+  jobId: -1
+  dataxHome: /Users/h-vk/Downloads/datax
+
+## redis 配置
+redis:
+  addr: node-160:6379
+  password:
+  db: 2
+
+## job 作业配置
+jobs:
+  '0 0/1 * * * *':
+    - template
+    - test2

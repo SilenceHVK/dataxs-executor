@@ -1,40 +1,42 @@
 package main
 
 import (
-	"fmt"
-	"github.com/fsnotify/fsnotify"
+	"os/exec"
+
+	"github.com/SilenceHVK/dataxs-executor/executor"
+
+	"github.com/gin-gonic/gin"
+
+	"github.com/SilenceHVK/dataxs-executor/utils"
+	"github.com/lexkong/log"
 	"github.com/spf13/viper"
-	"time"
 )
 
-var config *viper.Viper
-
-func init() {
-	// 加载 config
-	config = viper.New()
-	config.SetConfigName("config")
-	config.SetConfigType("yml")
-	config.AddConfigPath("./conf")
-	if err := config.ReadInConfig(); err != nil {
+func main() {
+	// 加载配置文件
+	if err := utils.Init(""); err != nil {
 		panic(err)
 	}
-	config.WatchConfig()
-	config.OnConfigChange(func(in fsnotify.Event) {
-		fmt.Print("文件被更改了")
-	})
-	generateJobJson()
-}
 
-func generateJobJson() {
-
-}
-
-func main() {
-	timer := time.NewTimer(10 * time.Second)
-	for {
-		select {
-		case <-timer.C:
-			timer.Reset(10 * time.Second)
-		}
+	// 获取 Datax 执行器环境
+	dataxEnv := viper.GetString("datax.env")
+	if _, err := exec.LookPath(dataxEnv); err != nil {
+		log.Warnf("Datax 依赖 %s 环境未找到，请安装....", dataxEnv)
+		return
 	}
+
+	// 初始化 CronJob
+	c, err := executor.InitCronJob("datax", "jobs", dataxEnv)
+	if err != nil {
+		log.Errorf(err, "")
+		return
+	}
+
+	c.Start()
+	defer c.Stop()
+	log.Info("==================== 同步应用启动 ====================")
+
+	gin.SetMode(viper.GetString("server.mode"))
+	r := gin.Default()
+	_ = r.Run(":" + viper.GetString("server.port"))
 }
