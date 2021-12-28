@@ -29,7 +29,7 @@ func (e *Job) Run() {
 	for _, task := range e.Tasks {
 		log.Infof("开始执行同步任务 => 【%s】", task.Name)
 		if err := execAction(e, task.Name, nil); err != nil {
-			log.Errorf(err, "执行同步任务 【%s】失败\n", e.JobPath)
+			log.Errorf(err, "执行同步任务 【%s】失败\n", task.Name)
 			continue
 		}
 
@@ -37,7 +37,12 @@ func (e *Job) Run() {
 		var wg sync.WaitGroup
 		wg.Add(len(task.Successor))
 		for _, taskName := range task.Successor {
-			go execAction(e, taskName, &wg)
+			go func(taskName string) {
+				err := execAction(e, taskName, &wg)
+				if err != nil {
+					log.Errorf(err, "执行同步任务 【%s】失败", taskName)
+				}
+			}(taskName)
 		}
 		wg.Wait()
 		// 执行任务成功后的后续任务
