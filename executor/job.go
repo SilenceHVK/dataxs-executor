@@ -2,37 +2,65 @@ package executor
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-
 	"github.com/go-redis/redis/v8"
 	"github.com/lexkong/log"
 	"github.com/robfig/cron"
 	"github.com/spf13/viper"
+	"os"
+	"path/filepath"
+	"sync"
 )
 
+type Task struct {
+	Name      string
+	Successor []string
+}
 type Job struct {
 	JobName  string
 	DataXEnv string
 	Args     []string
 	JobPath  string
+	JobExt   string
 	rdb      *redis.Client
+	Tasks    []Task
 }
 
-func (e Job) Run() {
-	log.Infof("开始执行同步任务 => 【%s】", e.JobName)
-	context := context.Background()
-	lastJobTime, errR := e.rdb.Get(context, e.JobName).Result()
+func (e *Job) Run() {
+	for _, task := range e.Tasks {
+		log.Infof("开始执行同步任务 => 【%s】", task.Name)
+		if err := execAction(e, task.Name, nil); err != nil {
+			log.Errorf(err, "执行同步任务 【%s】失败\n", e.JobPath)
+			continue
+		}
+
+		// 开启协程执行后续操作
+		var wg sync.WaitGroup
+		wg.Add(len(task.Successor))
+		for _, taskName := range task.Successor {
+			go execAction(e, taskName, &wg)
+		}
+		wg.Wait()
+		// 执行任务成功后的后续任务
+		log.Infof("同步任务【%s】执行成功", task.Name)
+	}
+}
+
+func execAction(job *Job, taskName string, wg *sync.WaitGroup) error {
+	_context := context.Background()
+	job.JobName = taskName
+	if wg != nil {
+		defer wg.Done()
+	}
+	lastJobTime, errR := job.rdb.Get(_context, taskName).Result()
 	if errR != nil {
 		lastJobTime = ""
 	}
-
-	var datax, err = Exec(context, e, append(e.Args, "-job", e.JobPath, "-lastJobTime", lastJobTime))
+	var datax, err = Exec(_context, job, append(job.Args, "-job", filepath.Join(job.JobPath, taskName+job.JobExt), "-lastJobTime", lastJobTime))
 	if err != nil {
-		log.Errorf(err, "")
-		return
+		log.Errorf(err, "执行同步任务 【%s】失败", taskName)
+		return err
 	}
-	_ = datax.Wait()
+	return datax.Wait()
 }
 
 func InitCronJob(dataxKey, jobKey, dataxEnv string) (*cron.Cron, error) {
@@ -62,18 +90,22 @@ func InitCronJob(dataxKey, jobKey, dataxEnv string) (*cron.Cron, error) {
 
 	// 获取程序执行目录
 	rootPath, _ := os.Getwd()
-	jobs := viper.GetStringMapStringSlice(jobKey)
-	for spec, value := range jobs {
-		for _, job := range value {
-			log.Infof("添加同步任务 【%s】【%s】", spec, job)
-			_ = c.AddJob(spec, &Job{
-				JobName:  job,
-				DataXEnv: dataxEnv,
-				Args:     args,
-				JobPath:  filepath.Join(rootPath, "job", job+config.JobExt),
-				rdb:      rdb,
-			})
+	jobs := viper.GetStringMapString(jobKey)
+	for spec := range jobs {
+		log.Infof("添加同步任务 【%s】", spec)
+		var tasks []Task
+		if err := viper.UnmarshalKey(jobKey+"."+spec, &tasks); err != nil {
+			log.Errorf(err, "读取 %s.%s 配置错误\n", jobKey, spec)
+			continue
 		}
+		_ = c.AddJob(spec, &Job{
+			DataXEnv: dataxEnv,
+			Args:     args,
+			JobPath:  filepath.Join(rootPath, "job"),
+			JobExt:   config.JobExt,
+			Tasks:    tasks,
+			rdb:      rdb,
+		})
 	}
 	return c, nil
 }

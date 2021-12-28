@@ -31,6 +31,9 @@ redis:
 
 ## job 作业配置
 jobs:
-  '0 0/1 * * * *':
-    - template
-    - test2
+  '*/1 * * * * *':
+    - name: template
+      successor:
+        - nation-test
+        - nation-hello
+    - name: no-where

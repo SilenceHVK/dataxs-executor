@@ -40,10 +40,10 @@ func (d DataX) Wait() (err error) {
 			_ = d.rdb.Set(*d.parent, d.Tag, time.Now().Format("2006-01-02 15:04:05"), 0).Err()
 		}
 	}
-	return
+	return err
 }
 
-func Exec(ctx context.Context, job Job, args []string) (datax *DataX, err error) {
+func Exec(ctx context.Context, job *Job, args []string) (datax *DataX, err error) {
 	command := exec.CommandContext(ctx, job.DataXEnv, args...)
 	stderr, _ := command.StderrPipe()
 	stdout, _ := command.StdoutPipe()
